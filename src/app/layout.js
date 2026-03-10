@@ -4,7 +4,11 @@ import { Provider } from "@/components/Provider";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
-const cairo = Cairo({ subsets: ["arabic"] });
+const cairo = Cairo({
+  subsets: ["arabic"],
+  weight: ["200", "300", "400", "500", "600", "700", "800", "900"],
+  variable: "--font-cairo",
+});
 
 export const metadata = {
   title: "شيبنج فاست - حلول لوجستية",
@@ -15,7 +19,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="ar" dir="rtl" className="light overflow-x-hidden">
       <body
-        className={`${cairo.className} bg-white text-black min-h-screen flex flex-col`}
+        className={`${cairo.variable}  bg-white text-black min-h-screen flex flex-col`}
       >
         <Provider>
           <Navbar />

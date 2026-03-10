@@ -11,6 +11,7 @@
   --color-orange-700: #c2410c;
   --color-orange-800: #9a3412;
   --color-orange-900: #7c2d12;
+  --font-sans: var(--font-cairo);
 }
 
 :root {
@@ -21,4 +22,5 @@
 body {
   background: var(--background);
   color: var(--foreground);
+  font-family: var(--font-cairo), sans-serif;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession, signIn } from "next-auth/react";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Send,
@@ -10,6 +10,8 @@ import {
   Package,
   ChevronLeft,
   CheckCircle2,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -17,42 +19,72 @@ export default function ShipPage() {
   const { data: session, status } = useSession();
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
-    sender: { name: "", phone: "", area: "nasr_city", address: "" },
-    receiver: { name: "", phone: "", area: "new_cairo", address: "" },
-    parcel: { weight: "", dimensions: "", packageType: "box", description: "" },
+    sender: { name: "", phone: "", area: "", address: "" },
+    receiver: { name: "", phone: "", area: "", address: "" },
+    parcels: [
+      {
+        id: Date.now(),
+        weight: "",
+        dimensions: "",
+        packageType: "box",
+        description: "",
+        hasCustomPickup: false,
+        customSenderArea: "",
+        customSenderAddress: "",
+      },
+    ],
   });
 
-  const cairoAreas = [
-    { id: "nasr_city", name: "مدينة نصر", price: 50 },
-    { id: "heliopolis", name: "مصر الجديدة", price: 55 },
-    { id: "new_cairo", name: "القاهرة الجديدة (التجمع)", price: 70 },
-    { id: "maadi", name: "المعادي", price: 60 },
-    { id: "downtown", name: "وسط البلد", price: 40 },
-    { id: "mohandeseen", name: "المهندسين", price: 45 },
-    { id: "dokki", name: "الدقي", price: 45 },
-    { id: "haram", name: "الهرم", price: 60 },
-    { id: "faisal", name: "فيصل", price: 55 },
-    { id: "october", name: "6 أكتوبر", price: 80 },
-    { id: "zayed", name: "الشيخ زايد", price: 80 },
-    { id: "shoubra", name: "شبرا", price: 50 },
-  ];
+  const [areas, setAreas] = useState([]);
+  const [areasLoading, setAreasLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchAreas = async () => {
+      try {
+        const apiUrl =
+          process.env.NEXT_PUBLIC_AREAS_API_URL ||
+          "https://express.prosental.com/api/areas";
+        const res = await fetch(apiUrl);
+        if (!res.ok) throw new Error("Network error");
+        const data = await res.json();
+        const activeAreas = data.filter((area) => area.is_active);
+        setAreas(activeAreas);
+        if (activeAreas.length > 0) {
+          setFormData((prev) => ({
+            ...prev,
+            sender: { ...prev.sender, area: String(activeAreas[0].id) },
+            receiver: { ...prev.receiver, area: String(activeAreas[0].id) },
+          }));
+        }
+      } catch (error) {
+        console.error("Failed to fetch areas", error);
+      } finally {
+        setAreasLoading(false);
+      }
+    };
+    fetchAreas();
+  }, []);
 
   const calculateShippingPrice = () => {
-    const senderArea = cairoAreas.find((a) => a.id === formData.sender.area);
-    const receiverArea = cairoAreas.find(
-      (a) => a.id === formData.receiver.area,
-    );
-    let base = 30; // base price
-    if (senderArea && receiverArea) {
-      // Simple logic: base + (sender_price + receiver_price)/2
-      base += Math.round((senderArea.price + receiverArea.price) / 2);
-    }
+    let base = 0; // reset base price to 0
 
-    // add weight cost
-    const w = parseFloat(formData.parcel.weight) || 0;
-    if (w > 5) {
-      base += (w - 5) * 5; // 5 EGP for every extra kg over 5kg
-    }
+    // calculate price for each parcel based on its specific pickup area
+    formData.parcels.forEach((parcel) => {
+      const areaId =
+        parcel.hasCustomPickup && parcel.customSenderArea
+          ? parcel.customSenderArea
+          : formData.sender.area;
+      const area = areas.find((a) => String(a.id) === String(areaId));
+      if (area) {
+        base += Number(area.price);
+      }
+
+      const w = parseFloat(parcel.weight) || 0;
+      if (w > 5) {
+        base += (w - 5) * 5; // 5 EGP for every extra kg over 5kg
+      }
+    });
+
     return base;
   };
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -70,6 +102,40 @@ export default function ShipPage() {
     }));
   };
 
+  const handleParcelChange = (index, field, value) => {
+    setFormData((prev) => {
+      const newParcels = [...prev.parcels];
+      newParcels[index] = { ...newParcels[index], [field]: value };
+      return { ...prev, parcels: newParcels };
+    });
+  };
+
+  const addParcel = () => {
+    setFormData((prev) => ({
+      ...prev,
+      parcels: [
+        ...prev.parcels,
+        {
+          id: Date.now(),
+          weight: "",
+          dimensions: "",
+          packageType: "box",
+          description: "",
+          hasCustomPickup: false,
+          customSenderArea: areas.length > 0 ? String(areas[0].id) : "",
+          customSenderAddress: "",
+        },
+      ],
+    }));
+  };
+
+  const removeParcel = (index) => {
+    setFormData((prev) => ({
+      ...prev,
+      parcels: prev.parcels.filter((_, i) => i !== index),
+    }));
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!session) {
@@ -82,7 +148,7 @@ export default function ShipPage() {
     }, 1000);
   };
 
-  if (status === "loading") {
+  if (status === "loading" || areasLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <motion.div
@@ -155,7 +221,7 @@ export default function ShipPage() {
             إنشاء شحنة جديدة
           </h1>
           <p className="text-gray-500 text-lg font-medium">
-            أرسل طردك لأي مكان بأمان وسرعة مع شيبنج فاست.
+            أرسل طردك لأي مكان بأمان وسرعة مع AdhamExpress.
           </p>
         </div>
 
@@ -178,7 +244,7 @@ export default function ShipPage() {
           ].map((s) => (
             <div
               key={s.num}
-              className="flex flex-col items-center bg-white px-4 relative z-10"
+              className="flex flex-col items-center bg-white lg:px-4 relative z-10"
             >
               <motion.div
                 animate={{
@@ -266,9 +332,9 @@ export default function ShipPage() {
                       }
                       className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-black font-medium appearance-none"
                     >
-                      {cairoAreas.map((area) => (
+                      {areas.map((area) => (
                         <option key={area.id} value={area.id}>
-                          {area.name}
+                          {area.name} ({Number(area.price)} ج.م)
                         </option>
                       ))}
                     </select>
@@ -350,7 +416,7 @@ export default function ShipPage() {
                       }
                       className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-black font-medium appearance-none"
                     >
-                      {cairoAreas.map((area) => (
+                      {areas.map((area) => (
                         <option key={area.id} value={area.id}>
                           {area.name}
                         </option>
@@ -385,89 +451,214 @@ export default function ShipPage() {
                 animate="enter"
                 exit="exit"
               >
-                <h2 className="text-2xl font-bold text-black border-b border-gray-100 pb-4 mb-8 flex items-center gap-3">
-                  <div className="p-2 bg-orange-500 rounded-lg text-white">
-                    <Package size={24} />
-                  </div>
-                  مواصفات الطرد
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="col-span-1 md:col-span-2">
-                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                      نوع الطرد
-                    </label>
-                    <div className="flex gap-4">
-                      {[
-                        { id: "documents", name: "مستندات/أوراق" },
-                        { id: "box", name: "صندوق" },
-                        { id: "pallet", name: "طبلية/حجم كبير" },
-                      ].map((type) => (
-                        <label
-                          key={type.id}
-                          className={`flex-1 flex flex-col items-center justify-center p-4 rounded-xl border-2 cursor-pointer transition-all ${formData.parcel.packageType === type.id ? "border-orange-500 bg-orange-50 text-orange-700" : "border-gray-200 bg-white hover:border-orange-200 text-gray-600"}`}
-                        >
-                          <input
-                            type="radio"
-                            name="packageType"
-                            className="sr-only"
-                            checked={formData.parcel.packageType === type.id}
-                            onChange={() =>
-                              handleChange("parcel", "packageType", type.id)
-                            }
-                          />
-                          <span className="font-bold">{type.name}</span>
-                        </label>
-                      ))}
+                <h2 className="text-2xl font-bold text-black border-b border-gray-100 pb-4 mb-8 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-orange-500 rounded-lg text-white">
+                      <Package size={24} />
                     </div>
+                    مواصفات الطرد
                   </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                      الوزن التقديري (كجم)
-                    </label>
-                    <input
-                      required
-                      type="number"
-                      min="0.1"
-                      step="0.1"
-                      value={formData.parcel.weight}
-                      onChange={(e) =>
-                        handleChange("parcel", "weight", e.target.value)
-                      }
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-black font-medium"
-                      placeholder="مثال: 2.5"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                      الأبعاد (طولxعرضxارتفاع سم)
-                    </label>
-                    <input
-                      required
-                      type="text"
-                      dir="ltr"
-                      value={formData.parcel.dimensions}
-                      onChange={(e) =>
-                        handleChange("parcel", "dimensions", e.target.value)
-                      }
-                      className="w-full text-right bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-black font-medium"
-                      placeholder="30x20x15"
-                    />
-                  </div>
-                  <div className="col-span-1 md:col-span-2">
-                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                      وصف مختصر للطرد
-                    </label>
-                    <input
-                      required
-                      type="text"
-                      value={formData.parcel.description}
-                      onChange={(e) =>
-                        handleChange("parcel", "description", e.target.value)
-                      }
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-black font-medium"
-                      placeholder="مثال: إلكترونيات، كتب، هدايا..."
-                    />
-                  </div>
+                  <button
+                    type="button"
+                    onClick={addParcel}
+                    className="flex items-center gap-2 text-sm bg-orange-100 text-orange-600 px-4 py-2 rounded-xl hover:bg-orange-200 transition-colors"
+                  >
+                    <Plus size={18} /> إضافة طرد آخر
+                  </button>
+                </h2>
+
+                <div className="space-y-8">
+                  {formData.parcels.map((parcel, index) => (
+                    <div
+                      key={parcel.id}
+                      className="relative bg-gray-50/50 border border-gray-100 p-6 rounded-2xl"
+                    >
+                      {formData.parcels.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeParcel(index)}
+                          className="absolute top-4 left-4 text-red-500 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      )}
+
+                      <h3 className="font-bold text-gray-800 mb-6">
+                        طرد رقم {index + 1}
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="col-span-1 md:col-span-2">
+                          <label className="block text-sm font-bold text-gray-700 mb-2">
+                            نوع الطرد
+                          </label>
+                          <div className="flex gap-4">
+                            {[
+                              { id: "documents", name: "مستندات/أوراق" },
+                              { id: "box", name: "صندوق" },
+                              { id: "pallet", name: "طلبيه/حجم كبير" },
+                            ].map((type) => (
+                              <label
+                                key={type.id}
+                                className={`flex-1 flex flex-col items-center justify-center p-4 rounded-xl border-2 cursor-pointer transition-all ${parcel.packageType === type.id ? "border-orange-500 bg-orange-50 text-orange-700" : "border-gray-200 bg-white hover:border-orange-200 text-gray-600"}`}
+                              >
+                                <input
+                                  type="radio"
+                                  name={`packageType-${index}`}
+                                  className="sr-only"
+                                  checked={parcel.packageType === type.id}
+                                  onChange={() =>
+                                    handleParcelChange(
+                                      index,
+                                      "packageType",
+                                      type.id,
+                                    )
+                                  }
+                                />
+                                <span className="font-bold">{type.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-2">
+                            الوزن التقديري (كجم)
+                          </label>
+                          <input
+                            required
+                            type="number"
+                            min="0.1"
+                            step="0.1"
+                            value={parcel.weight}
+                            onChange={(e) =>
+                              handleParcelChange(
+                                index,
+                                "weight",
+                                e.target.value,
+                              )
+                            }
+                            className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-black font-medium"
+                            placeholder="مثال: 2.5"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-2">
+                            الأبعاد (طولxعرضxارتفاع سم)
+                          </label>
+                          <input
+                            required
+                            type="text"
+                            dir="ltr"
+                            value={parcel.dimensions}
+                            onChange={(e) =>
+                              handleParcelChange(
+                                index,
+                                "dimensions",
+                                e.target.value,
+                              )
+                            }
+                            className="w-full text-right bg-white border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-black font-medium"
+                            placeholder="30x20x15"
+                          />
+                        </div>
+                        <div className="col-span-1 md:col-span-2">
+                          <label className="block text-sm font-bold text-gray-700 mb-2">
+                            وصف مختصر للطرد
+                          </label>
+                          <input
+                            required
+                            type="text"
+                            value={parcel.description}
+                            onChange={(e) =>
+                              handleParcelChange(
+                                index,
+                                "description",
+                                e.target.value,
+                              )
+                            }
+                            className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-black font-medium"
+                            placeholder="مثال: إلكترونيات، كتب، هدايا..."
+                          />
+                        </div>
+
+                        <div className="col-span-1 md:col-span-2 mt-2">
+                          <label className="flex items-center gap-2 cursor-pointer mb-4">
+                            <input
+                              type="checkbox"
+                              checked={parcel.hasCustomPickup}
+                              onChange={(e) => {
+                                handleParcelChange(
+                                  index,
+                                  "hasCustomPickup",
+                                  e.target.checked,
+                                );
+                                if (
+                                  e.target.checked &&
+                                  !parcel.customSenderArea &&
+                                  areas.length > 0
+                                ) {
+                                  handleParcelChange(
+                                    index,
+                                    "customSenderArea",
+                                    String(areas[0].id),
+                                  );
+                                }
+                              }}
+                              className="w-4 h-4 text-orange-500 rounded border-gray-300 focus:ring-orange-500"
+                            />
+                            <span className="text-sm font-bold text-gray-700">
+                              استلام هذا الطرد من عنوان مختلف عن الراسل الأساسي
+                            </span>
+                          </label>
+
+                          {parcel.hasCustomPickup && (
+                            <div className="space-y-4 bg-white p-4 rounded-xl border border-gray-100 mt-2">
+                              <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-2">
+                                  منطقة الاستلام للطرد
+                                </label>
+                                <select
+                                  value={parcel.customSenderArea}
+                                  onChange={(e) =>
+                                    handleParcelChange(
+                                      index,
+                                      "customSenderArea",
+                                      e.target.value,
+                                    )
+                                  }
+                                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-black font-medium appearance-none"
+                                >
+                                  {areas.map((area) => (
+                                    <option key={area.id} value={area.id}>
+                                      {area.name} ({Number(area.price)} ج.م)
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-2">
+                                  عنوان الاستلام للطرد بالتفصيل
+                                </label>
+                                <textarea
+                                  required={parcel.hasCustomPickup}
+                                  rows="2"
+                                  value={parcel.customSenderAddress}
+                                  onChange={(e) =>
+                                    handleParcelChange(
+                                      index,
+                                      "customSenderAddress",
+                                      e.target.value,
+                                    )
+                                  }
+                                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-black resize-none font-medium"
+                                  placeholder="أدخل عنوان استلام هذا الطرد"
+                                ></textarea>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 <div className="mt-8 bg-orange-50 border border-orange-200 rounded-2xl p-6">
@@ -478,14 +669,17 @@ export default function ShipPage() {
                       </h3>
                       <p className="text-orange-700 text-sm mt-1">
                         من{" "}
-                        {
-                          cairoAreas.find((a) => a.id === formData.sender.area)
-                            ?.name
-                        }{" "}
+                        {formData.parcels.some((p) => p.hasCustomPickup)
+                          ? "عناوين متعددة"
+                          : areas.find(
+                              (a) =>
+                                String(a.id) === String(formData.sender.area),
+                            )?.name}{" "}
                         إلى{" "}
                         {
-                          cairoAreas.find(
-                            (a) => a.id === formData.receiver.area,
+                          areas.find(
+                            (a) =>
+                              String(a.id) === String(formData.receiver.area),
                           )?.name
                         }
                       </p>

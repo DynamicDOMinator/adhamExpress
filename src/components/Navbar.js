@@ -18,8 +18,13 @@ export default function Navbar() {
         <div className="flex justify-between h-20">
           <div className="flex items-center ">
             <Link href="/" className="flex items-center  gap-2 group">
-          <Image className="w-[150px] h-[150px] mt-3" src="/logo.png" alt="Logo" width={1000} height={1000} />
-           
+              <Image
+                className=" mt-3"
+                src="/logo.png"
+                alt="Logo"
+                width={70}
+                height={70}
+              />
             </Link>
           </div>
           <div className="flex hidden md:flex items-center gap-5 ">
@@ -87,7 +92,6 @@ export default function Navbar() {
                               تم الدخول بواسطة
                             </p>
                             <p
-                          
                               className="text-sm font-bold text-gray-900 truncate"
                               title={session.user?.email}
                             >
@@ -100,7 +104,7 @@ export default function Navbar() {
                               href="/track"
                               onClick={() => setIsProfileOpen(false)}
                             >
-                              < button  className="w-full text-right px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-orange-50 hover:text-orange-600 rounded-xl transition-colors flex items-center justify-between">
+                              <button className="w-full text-right px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-orange-50 hover:text-orange-600 rounded-xl transition-colors flex items-center justify-between">
                                 شحناتي
                                 <Package size={16} />
                               </button>

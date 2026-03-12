@@ -32,11 +32,7 @@ export default function SettingsPage() {
     phone: "",
     area: "",
     detailed_address: "",
-  });
-
-  const [passwordData, setPasswordData] = useState({
-    newPassword: "",
-    confirmPassword: "",
+    password: "",
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -84,13 +80,14 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (currentUser) {
-      setProfileData({
+      setProfileData((prev) => ({
+        ...prev,
         name: currentUser.name || currentUser.email?.split("@")[0] || "",
         email: currentUser.email || "",
         phone: currentUser.phone || "",
         area: currentUser.area || "",
         detailed_address: currentUser.detailed_address || "",
-      });
+      }));
     }
   }, [currentUser]);
 
@@ -126,6 +123,15 @@ export default function SettingsPage() {
     e.preventDefault();
     setIsLoading(true);
     try {
+      const body = {
+        name: profileData.name,
+        email: profileData.email,
+        phone: profileData.phone,
+      };
+      // Only include password if the user typed one
+      if (profileData.password) {
+        body.password = profileData.password;
+      }
       const res = await fetch(
         "https://express.prosental.com/api/auth/profile/edit",
         {
@@ -135,60 +141,16 @@ export default function SettingsPage() {
             Accept: "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({
-            name: profileData.name,
-            email: profileData.email,
-            phone: profileData.phone,
-            area: profileData.area,
-            detailed_address: profileData.detailed_address,
-          }),
+          body: JSON.stringify(body),
         },
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.message || "فشل تحديث البيانات");
       showPopup("تم تحديث بيانات الحساب بنجاح!", "success");
+      // Clear password field after save
+      setProfileData((prev) => ({ ...prev, password: "" }));
     } catch (error) {
       showPopup(error.message, "error");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handlePasswordSubmit = async (e) => {
-    e.preventDefault();
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      showPopup("كلمة المرور الجديدة غير متطابقة.", "error");
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const res = await fetch(
-        "https://express.prosental.com/api/auth/reset-password",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            token: token,
-            email: profileData.email,
-            password: passwordData.newPassword,
-            password_confirmation: passwordData.confirmPassword,
-          }),
-        },
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok)
-        throw new Error(data.message || "حدث خطأ أثناء تغيير كلمة المرور");
-      showPopup("تم تغيير كلمة المرور بنجاح!", "success");
-      setPasswordData({
-        newPassword: "",
-        confirmPassword: "",
-      });
-    } catch (err) {
-      showPopup(err.message, "error");
     } finally {
       setIsLoading(false);
     }
@@ -253,17 +215,6 @@ export default function SettingsPage() {
               >
                 <span>المعلومات الشخصية</span>
                 <User size={18} />
-              </button>
-              <button
-                onClick={() => setActiveTab("security")}
-                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl font-bold transition-all ${
-                  activeTab === "security"
-                    ? "bg-orange-50 text-orange-600 border border-orange-100"
-                    : "text-gray-600 hover:bg-gray-100"
-                }`}
-              >
-                <span>الرقم السري والأمان</span>
-                <ShieldCheck size={18} />
               </button>
             </nav>
           </div>
@@ -358,7 +309,35 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
-                  <div className="pt-6  flex justify-end">
+                  {/* Password field - optional */}
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      كلمة المرور الجديدة{" "}
+                      <span className="text-gray-400 font-normal text-xs">
+                        (اختياري — اتركه فارغاً إذا لم ترد تغييره)
+                      </span>
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-gray-400">
+                        <Lock size={20} />
+                      </div>
+                      <input
+                        type="password"
+                        dir="ltr"
+                        value={profileData.password}
+                        onChange={(e) =>
+                          setProfileData({
+                            ...profileData,
+                            password: e.target.value,
+                          })
+                        }
+                        className="block w-full pr-10 pl-3 py-3 border border-gray-200 rounded-xl focus:ring-orange-500 focus:border-orange-500 bg-gray-50 focus:bg-white text-black font-medium transition-colors"
+                        placeholder="••••••••"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-6 flex justify-end">
                     <button
                       type="submit"
                       disabled={isLoading}
@@ -370,90 +349,6 @@ export default function SettingsPage() {
                         <Save size={20} />
                       )}
                       حفظ التغييرات
-                    </button>
-                  </div>
-                </form>
-              </motion.div>
-            )}
-
-            {activeTab === "security" && (
-              <motion.div
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.3 }}
-              >
-                <div className="mb-8">
-                  <h3 className="text-2xl font-bold text-gray-900">
-                    تغيير كلمة المرور
-                  </h3>
-                  <p className="text-gray-500 mt-1 text-sm font-medium">
-                    احرص على استخدام كلمة مرور قوية للحفاظ على أمان حسابك.
-                  </p>
-                </div>
-
-                <form onSubmit={handlePasswordSubmit} className="space-y-6">
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                      كلمة المرور الجديدة
-                    </label>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-gray-400">
-                        <Lock size={20} />
-                      </div>
-                      <input
-                        type="password"
-                        required
-                        dir="ltr"
-                        value={passwordData.newPassword}
-                        onChange={(e) =>
-                          setPasswordData({
-                            ...passwordData,
-                            newPassword: e.target.value,
-                          })
-                        }
-                        className="block w-full text-right pr-10 pl-3 py-3 border border-gray-200 rounded-xl focus:ring-orange-500 focus:border-orange-500 bg-gray-50 focus:bg-white text-black font-medium transition-colors"
-                        placeholder="••••••••"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                      تأكيد كلمة المرور الجديدة
-                    </label>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-gray-400">
-                        <Lock size={20} />
-                      </div>
-                      <input
-                        type="password"
-                        required
-                        dir="ltr"
-                        value={passwordData.confirmPassword}
-                        onChange={(e) =>
-                          setPasswordData({
-                            ...passwordData,
-                            confirmPassword: e.target.value,
-                          })
-                        }
-                        className="block w-full text-right pr-10 pl-3 py-3 border border-gray-200 rounded-xl focus:ring-orange-500 focus:border-orange-500 bg-gray-50 focus:bg-white text-black font-medium transition-colors"
-                        placeholder="••••••••"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="pt-6 border-t border-gray-100 flex justify-end">
-                    <button
-                      type="submit"
-                      disabled={isLoading}
-                      className="bg-black hover:bg-gray-800 text-white px-8 py-3 rounded-xl font-bold shadow-lg transition-colors flex items-center gap-2 disabled:opacity-70"
-                    >
-                      {isLoading ? (
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      ) : (
-                        <ShieldCheck size={20} />
-                      )}
-                      تحديث الأمان
                     </button>
                   </div>
                 </form>

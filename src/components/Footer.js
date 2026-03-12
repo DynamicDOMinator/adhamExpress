@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import {
   Package,
@@ -10,6 +13,33 @@ import {
 import Image from "next/image";
 
 export default function Footer() {
+  const [email, setEmail] = useState("");
+  const [status, setStatus] = useState(null); // "success" | "error"
+
+  const handleSubscribe = async (e) => {
+    e.preventDefault();
+    if (!email) return;
+    try {
+      const res = await fetch(
+        "https://express.prosental.com/api/newsletter/subscribe",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ email }),
+        },
+      );
+      if (!res.ok) throw new Error();
+      setStatus("success");
+      setEmail("");
+    } catch {
+      setStatus("error");
+    } finally {
+      setTimeout(() => setStatus(null), 4000);
+    }
+  };
   return (
     <footer className=" text-black pt-16 pb-8 border-t-4 border-orange-500">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -107,19 +137,37 @@ export default function Footer() {
             <p className="text-sm text-black mb-4">
               اشترك للحصول على آخر التحديثات والعروض الخاصة بأسعار الشحن.
             </p>
-            <form suppressHydrationWarning className="flex flex-col gap-3">
+            <form
+              suppressHydrationWarning
+              onSubmit={handleSubscribe}
+              className="flex flex-col gap-3"
+            >
               <input
                 suppressHydrationWarning
                 type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 placeholder="أدخل بريدك الإلكتروني"
                 className="bg-gray-900 border border-gray-800 text-white rounded-lg px-4 py-2.5 outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all text-sm"
               />
               <button
+                type="submit"
                 suppressHydrationWarning
                 className="bg-orange-500 hover:bg-orange-600 text-white rounded-lg px-4 py-2.5 font-medium transition-colors text-sm w-full"
               >
                 اشترك الآن
               </button>
+              {status === "success" && (
+                <p className="text-green-500 text-sm font-bold text-center">
+                  ✓ تم الاشتراك بنجاح!
+                </p>
+              )}
+              {status === "error" && (
+                <p className="text-red-500 text-sm font-bold text-center">
+                  ✗ حدث خطأ، حاول مجدداً.
+                </p>
+              )}
             </form>
           </div>
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, Suspense, use } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Lock, Package, CheckCircle, XCircle, ShieldCheck } from "lucide-react";
@@ -266,6 +266,7 @@ function ResetPasswordContent({ token }) {
 }
 
 export default function ResetPasswordPage({ params }) {
+  const { token } = use(params);
   return (
     <Suspense
       fallback={
@@ -274,7 +275,7 @@ export default function ResetPasswordPage({ params }) {
         </div>
       }
     >
-      <ResetPasswordContent token={params.token} />
+      <ResetPasswordContent token={token} />
     </Suspense>
   );
 }

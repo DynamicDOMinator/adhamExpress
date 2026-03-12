@@ -219,18 +219,8 @@ export default function Navbar() {
               <div className="pt-4 border-t border-gray-100 flex flex-col gap-3">
                 {isAuthenticated ? (
                   <>
-                    <div className="flex flex-row-reverse justify-end items-center gap-3 py-2">
-                      {currentUser?.image ? (
-                        <img
-                          src={currentUser.image}
-                          alt="avatar"
-                          className="w-10 h-10 rounded-full"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600">
-                          <User size={20} />
-                        </div>
-                      )}
+                    <div  className="flex flex-row-reverse justify-end items-center gap-3 py-2">
+                    
                       <div className="text-right">
                         <p className="font-medium text-gray-900">
                           {currentUser?.name ||
@@ -241,6 +231,17 @@ export default function Navbar() {
                           {currentUser?.email || "حساب محلي"}
                         </p>
                       </div>
+                        {currentUser?.image ? (
+                        <img
+                          src={currentUser.image}
+                          alt="avatar"
+                          className="w-10 h-10 rounded-full"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600">
+                          <User size={20} />
+                        </div>
+                      )}
                     </div>
                     <button
                       onClick={() => {

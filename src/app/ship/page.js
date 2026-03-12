@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Plus,
   Trash2,
+  XCircle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -20,6 +21,18 @@ export default function ShipPage() {
   const { data: session, status } = useSession();
   const { user, token } = useAuthContext();
   const isAuthenticated = !!session || !!user;
+  const [popup, setPopup] = useState({
+    show: false,
+    message: "",
+    type: "success",
+  });
+
+  const showPopup = (message, type = "success") => {
+    setPopup({ show: true, message, type });
+    setTimeout(() => {
+      setPopup((prev) => ({ ...prev, show: false }));
+    }, 4000);
+  };
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     sender: { name: "", phone: "", area: "", address: "" },

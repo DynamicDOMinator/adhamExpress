@@ -3,8 +3,19 @@
 import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { useState } from "react";
-import { motion } from "framer-motion";
-import { Package, Mail, Lock, User, Phone, CheckCircle2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Package,
+  Mail,
+  Lock,
+  User,
+  Phone,
+  CheckCircle2,
+  CheckCircle,
+  XCircle,
+} from "lucide-react";
+import { useAuthContext } from "@/context/AuthContext";
 
 export default function SignupPage() {
   const [formData, setFormData] = useState({
@@ -15,30 +26,51 @@ export default function SignupPage() {
     confirmPassword: "",
   });
   const [isLoading, setIsLoading] = useState(false);
+  const { register } = useAuthContext();
+  const router = useRouter();
+  const [popup, setPopup] = useState({
+    show: false,
+    message: "",
+    type: "success",
+  });
+
+  const showPopup = (message, type = "success") => {
+    setPopup({ show: true, message, type });
+    setTimeout(() => {
+      setPopup((prev) => ({ ...prev, show: false }));
+    }, 4000);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (formData.password !== formData.confirmPassword) {
-      alert("كلمة المرور وتأكيد كلمة المرور غير متطابقين.");
+      showPopup("كلمة المرور وتأكيد كلمة المرور غير متطابقين.", "error");
       return;
     }
 
     setIsLoading(true);
 
     try {
-      // Simulate registering then login right away using mock provider
-      const result = await signIn("credentials", {
-        redirect: true,
+      const result = await register({
+        name: formData.fullName,
         email: formData.email,
         password: formData.password,
-        callbackUrl: "/",
+        phone: formData.phone,
       });
 
-      if (result?.error) {
-        alert("حدث خطأ أثناء إنشاء الحساب، يرجى المحاولة لاحقاً");
+      if (result.success) {
+        let callbackUrl = "/";
+        if (typeof window !== "undefined") {
+          const params = new URLSearchParams(window.location.search);
+          callbackUrl = params.get("callbackUrl") || "/";
+        }
+        router.push(callbackUrl);
+      } else {
+        showPopup(result.error || "حدث خطأ أثناء إجراء التسجيل", "error");
       }
     } catch (error) {
       console.error(error);
+      showPopup("حدث خطأ في الاتصال بالخادم", "error");
     } finally {
       setIsLoading(false);
     }
@@ -47,15 +79,13 @@ export default function SignupPage() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-lg">
-  
-
         <motion.h1
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 0.1 }}
           className="mt-6 text-center text-3xl font-extrabold text-gray-900"
         >
-         انشاء حساب جديد
+          انشاء حساب جديد
         </motion.h1>
         <motion.p
           initial={{ y: 20, opacity: 0 }}
@@ -65,7 +95,12 @@ export default function SignupPage() {
         >
           هل لديك حساب بالفعل؟{" "}
           <Link
-            href="/login"
+            href={
+              typeof window !== "undefined" &&
+              new URLSearchParams(window.location.search).get("callbackUrl")
+                ? `/login?callbackUrl=${encodeURIComponent(new URLSearchParams(window.location.search).get("callbackUrl"))}`
+                : "/login"
+            }
             className="font-bold text-orange-500 hover:text-orange-600 transition-colors"
           >
             قم بتسجيل الدخول من هنا
@@ -82,9 +117,14 @@ export default function SignupPage() {
         <div className="bg-white py-10 px-4 shadow-2xl sm:rounded-3xl border border-gray-100 sm:px-10">
           <div className="mb-8">
             <motion.button
-              whileHover={{ scale: 1.01, y: -2 }}
-              whileTap={{ scale: 0.99 }}
-              onClick={() => signIn("google", { callbackUrl: "/" })}
+              onClick={() => {
+                let callbackUrl = "/";
+                if (typeof window !== "undefined") {
+                  const params = new URLSearchParams(window.location.search);
+                  callbackUrl = params.get("callbackUrl") || "/";
+                }
+                signIn("google", { callbackUrl });
+              }}
               className="w-full flex items-center justify-center gap-3 px-4 py-3 border border-gray-200 rounded-xl shadow-sm bg-white text-sm font-bold text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all border-b-4 focus:outline-none"
             >
               <img
@@ -111,7 +151,7 @@ export default function SignupPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">
-                  الاسم 
+                  الاسم
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-gray-400">
@@ -239,15 +279,37 @@ export default function SignupPage() {
                   </span>
                 ) : (
                   <>
-                 <CheckCircle2 size={20} />   إنشاء الحساب 
+                    <CheckCircle2 size={20} /> إنشاء الحساب
                   </>
                 )}
               </motion.button>
-             
             </div>
           </form>
         </div>
       </motion.div>
+
+      {/* Toast Notification Popup */}
+      <AnimatePresence>
+        {popup.show && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: -50 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: -20 }}
+            className={`fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center min-w-[300px] justify-center gap-3 px-6 py-4 rounded-2xl shadow-2xl backdrop-blur-md font-bold text-white border-2 border-white/20 ${
+              popup.type === "success" ? "bg-green-500" : "bg-red-500"
+            }`}
+          >
+            {popup.type === "success" ? (
+              <CheckCircle size={24} className="text-white drop-shadow-sm" />
+            ) : (
+              <XCircle size={24} className="text-white drop-shadow-sm" />
+            )}
+            <p className="text-sm md:text-base drop-shadow-sm">
+              {popup.message}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

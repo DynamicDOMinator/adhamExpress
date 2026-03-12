@@ -2,6 +2,7 @@
 
 import { useSession, signIn } from "next-auth/react";
 import React, { useState, useEffect } from "react";
+import { useAuthContext } from "@/context/AuthContext";
 import Link from "next/link";
 import {
   Send,
@@ -17,6 +18,8 @@ import { motion, AnimatePresence } from "framer-motion";
 
 export default function ShipPage() {
   const { data: session, status } = useSession();
+  const { user, token } = useAuthContext();
+  const isAuthenticated = !!session || !!user;
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     sender: { name: "", phone: "", area: "", address: "" },
@@ -28,9 +31,9 @@ export default function ShipPage() {
         dimensions: "",
         packageType: "box",
         description: "",
-        hasCustomPickup: false,
-        customSenderArea: "",
-        customSenderAddress: "",
+        hasCustomDelivery: false,
+        customReceiverArea: "",
+        customReceiverAddress: "",
       },
     ],
   });
@@ -38,26 +41,80 @@ export default function ShipPage() {
   const [areas, setAreas] = useState([]);
   const [areasLoading, setAreasLoading] = useState(true);
 
+  const [shippingPrice, setShippingPrice] = useState(0);
+  const [shippingBreakdown, setShippingBreakdown] = useState([]);
+  const [isCalculatingPrice, setIsCalculatingPrice] = useState(false);
+  const priceCache = React.useRef({});
+
+  const getFirstAreaId = (zones) => {
+    for (const zone of zones) {
+      if (zone.areas && zone.areas.length > 0) {
+        for (const areaGroup of zone.areas) {
+          if (areaGroup.names && areaGroup.names.length > 0) {
+            return areaGroup.names[0].uuid;
+          }
+        }
+      }
+    }
+    return "";
+  };
+
+  const getAreaName = (id) => {
+    for (const zone of areas) {
+      if (zone.areas) {
+        for (const areaGroup of zone.areas) {
+          if (areaGroup.names) {
+            const found = areaGroup.names.find(
+              (n) => String(n.uuid) === String(id),
+            );
+            if (found) return `${zone.name} - ${found.name}`;
+          }
+        }
+      }
+    }
+    return "غير معروف";
+  };
+
   useEffect(() => {
     const fetchAreas = async () => {
       try {
-        const apiUrl =
-          process.env.NEXT_PUBLIC_AREAS_API_URL ||
-          "https://express.prosental.com/api/areas";
+        const apiUrl = `${process.env.NEXT_PUBLIC_AREAS_API_URL}/zones`;
         const res = await fetch(apiUrl);
         if (!res.ok) throw new Error("Network error");
         const data = await res.json();
-        const activeAreas = data.filter((area) => area.is_active);
-        setAreas(activeAreas);
-        if (activeAreas.length > 0) {
-          setFormData((prev) => ({
-            ...prev,
-            sender: { ...prev.sender, area: String(activeAreas[0].id) },
-            receiver: { ...prev.receiver, area: String(activeAreas[0].id) },
-          }));
+        const activeZones = data.filter((zone) => zone.is_active);
+        setAreas(activeZones);
+
+        const saved = localStorage.getItem("pendingShipment");
+        let parsedSaved = null;
+        try {
+          if (saved) parsedSaved = JSON.parse(saved);
+        } catch (e) {
+          console.error("Failed to parse pendingShipment", e);
         }
+
+        const firstAreaId = getFirstAreaId(activeZones);
+        setFormData((prev) => {
+          if (parsedSaved) return parsedSaved;
+          if (firstAreaId) {
+            return {
+              ...prev,
+              sender: { ...prev.sender, area: firstAreaId },
+              receiver: { ...prev.receiver, area: firstAreaId },
+            };
+          }
+          return prev;
+        });
       } catch (error) {
         console.error("Failed to fetch areas", error);
+
+        // As a fallback during network errors, restore draft if it exists
+        const saved = localStorage.getItem("pendingShipment");
+        if (saved) {
+          try {
+            setFormData(JSON.parse(saved));
+          } catch (e) {}
+        }
       } finally {
         setAreasLoading(false);
       }
@@ -65,34 +122,167 @@ export default function ShipPage() {
     fetchAreas();
   }, []);
 
-  const calculateShippingPrice = () => {
-    let base = 0; // reset base price to 0
+  useEffect(() => {
+    let active = true;
 
-    // calculate price for each parcel based on its specific pickup area
-    formData.parcels.forEach((parcel) => {
-      const areaId =
-        parcel.hasCustomPickup && parcel.customSenderArea
-          ? parcel.customSenderArea
-          : formData.sender.area;
-      const area = areas.find((a) => String(a.id) === String(areaId));
-      if (area) {
-        base += Number(area.price);
+    const calculateTotal = async () => {
+      if (!formData.receiver.area || !formData.sender.area) return;
+
+      setIsCalculatingPrice(true);
+
+      try {
+        const apiUrl =
+          process.env.NEXT_PUBLIC_AREAS_API_URL ||
+          "https://express.prosental.com/api";
+        const routesToFetch = new Set();
+
+        // Phase 1: Identify all unique routes we need
+        for (let i = 0; i < formData.parcels.length; i++) {
+          const parcel = formData.parcels[i];
+          const from_area_id = formData.sender.area;
+          const to_area_id =
+            parcel.hasCustomDelivery && parcel.customReceiverArea
+              ? parcel.customReceiverArea
+              : formData.receiver.area;
+
+          if (from_area_id && to_area_id) {
+            const cacheKey = `${from_area_id}-${to_area_id}`;
+            if (priceCache.current[cacheKey] === undefined) {
+              routesToFetch.add(
+                JSON.stringify({ from_area_id, to_area_id, cacheKey }),
+              );
+            }
+          }
+        }
+
+        // Phase 2: Fetch all missing routes concurrently
+        if (routesToFetch.size > 0) {
+          await Promise.all(
+            Array.from(routesToFetch).map(async (routeStr) => {
+              const { from_area_id, to_area_id, cacheKey } =
+                JSON.parse(routeStr);
+              try {
+                const res = await fetch(`${apiUrl}/shipping-prices/lookup`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Accept: "application/json",
+                  },
+                  body: JSON.stringify({ from_area_id, to_area_id }),
+                });
+                if (res.ok) {
+                  const data = await res.json();
+                  priceCache.current[cacheKey] = Number(data.price || 0);
+                } else {
+                  console.error("Backend Pricing API Error:", await res.text());
+                  priceCache.current[cacheKey] = 0;
+                }
+              } catch (err) {
+                console.error("Network Error during Price Lookup:", err);
+                priceCache.current[cacheKey] = 0;
+              }
+            }),
+          );
+        }
+
+        if (!active) return; // if component unmounted or effect replaced, safely abort
+
+        // Phase 3: Synchronously calculate grand total using fully populated cache
+        let grandTotal = 0;
+        const newBreakdowns = [];
+
+        for (let i = 0; i < formData.parcels.length; i++) {
+          const parcel = formData.parcels[i];
+          const from_area_id = formData.sender.area;
+          const to_area_id =
+            parcel.hasCustomDelivery && parcel.customReceiverArea
+              ? parcel.customReceiverArea
+              : formData.receiver.area;
+
+          let parcelTotal = 0;
+          let addedBase = false;
+
+          if (from_area_id && to_area_id) {
+            const cacheKey = `${from_area_id}-${to_area_id}`;
+            const basePrice = priceCache.current[cacheKey] || 0;
+
+            // Increment base delivery fee if it's the principal package, or an explicit custom route.
+            if (i === 0 || parcel.hasCustomDelivery) {
+              grandTotal += basePrice;
+              parcelTotal += basePrice;
+              addedBase = true;
+            }
+          }
+
+          const w = parseFloat(parcel.weight) || 0;
+          if (w > 5) {
+            const weightFee = (w - 5) * 5; // 5 EGP for every extra kg over 5kg
+            grandTotal += weightFee;
+            parcelTotal += weightFee;
+          }
+
+          newBreakdowns.push({
+            id: parcel.id,
+            index: i + 1,
+            from: getAreaName(from_area_id),
+            to: getAreaName(to_area_id),
+            price: parcelTotal,
+            included: !addedBase && parcelTotal === 0,
+          });
+        }
+
+        setShippingBreakdown(newBreakdowns);
+        setShippingPrice(grandTotal);
+      } catch (error) {
+        console.error("Failed to calculate price aggregate", error);
+      } finally {
+        if (active) setIsCalculatingPrice(false);
       }
+    };
 
-      const w = parseFloat(parcel.weight) || 0;
-      if (w > 5) {
-        base += (w - 5) * 5; // 5 EGP for every extra kg over 5kg
-      }
-    });
+    calculateTotal();
 
-    return base;
-  };
+    return () => {
+      active = false;
+    };
+  }, [formData.sender.area, formData.receiver.area, formData.parcels]);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [orderId, setOrderId] = useState(null);
+  const [errors, setErrors] = useState({});
 
-  const handleNext = () => setStep((prev) => Math.min(prev + 1, 3));
+  const handleNext = () => {
+    let newErrors = {};
+    if (step === 1) {
+      if (!formData.sender.name)
+        newErrors["sender_name"] = "يرجى إدخال الاسم بالكامل";
+      if (!formData.sender.phone)
+        newErrors["sender_phone"] = "يرجى إدخال رقم الهاتف";
+      if (!formData.sender.area)
+        newErrors["sender_area"] = "يرجى اختيار المنطقة";
+      if (!formData.sender.address)
+        newErrors["sender_address"] = "يرجى إدخال العنوان بالتفصيل";
+    } else if (step === 2) {
+      if (!formData.receiver.name)
+        newErrors["receiver_name"] = "يرجى إدخال الاسم بالكامل";
+      if (!formData.receiver.phone)
+        newErrors["receiver_phone"] = "يرجى إدخال رقم الهاتف";
+      if (!formData.receiver.area)
+        newErrors["receiver_area"] = "يرجى اختيار المنطقة";
+      if (!formData.receiver.address)
+        newErrors["receiver_address"] = "يرجى إدخال العنوان بالتفصيل";
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    setErrors({});
+    setStep((prev) => Math.min(prev + 1, 3));
+  };
   const handleBack = () => setStep((prev) => Math.max(prev - 1, 1));
 
   const handleChange = (section, field, value) => {
+    setErrors((prev) => ({ ...prev, [`${section}_${field}`]: undefined }));
     setFormData((prev) => ({
       ...prev,
       [section]: {
@@ -111,6 +301,7 @@ export default function ShipPage() {
   };
 
   const addParcel = () => {
+    const firstAreaId = getFirstAreaId(areas);
     setFormData((prev) => ({
       ...prev,
       parcels: [
@@ -121,9 +312,9 @@ export default function ShipPage() {
           dimensions: "",
           packageType: "box",
           description: "",
-          hasCustomPickup: false,
-          customSenderArea: areas.length > 0 ? String(areas[0].id) : "",
-          customSenderAddress: "",
+          hasCustomDelivery: false,
+          customReceiverArea: firstAreaId,
+          customReceiverAddress: "",
         },
       ],
     }));
@@ -136,16 +327,70 @@ export default function ShipPage() {
     }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!session) {
-      window.location.href = "/signup";
+    if (!isAuthenticated) {
+      localStorage.setItem("pendingShipment", JSON.stringify(formData));
+      window.location.href = `/login?callbackUrl=${encodeURIComponent("/ship")}`;
       return;
     }
 
-    setTimeout(() => {
-      setIsSubmitted(true);
-    }, 1000);
+    const shipments = formData.parcels.map((parcel) => ({
+      sender_name: formData.sender.name,
+      sender_phone: formData.sender.phone,
+      sender_area_id: formData.sender.area,
+      sender_address: formData.sender.address,
+      receiver_name: formData.receiver.name,
+      receiver_phone: formData.receiver.phone,
+      receiver_area_id: parcel.hasCustomDelivery
+        ? parcel.customReceiverArea
+        : formData.receiver.area,
+      receiver_address: parcel.hasCustomDelivery
+        ? parcel.customReceiverAddress
+        : formData.receiver.address,
+      package_details: parcel.description || "Package",
+      type: parcel.packageType || "box",
+      weight: parcel.weight || "1",
+      dimensions: parcel.dimensions || "N/A",
+      instructions: "N/A",
+    }));
+
+    try {
+      const apiUrl =
+        process.env.NEXT_PUBLIC_AREAS_API_URL ||
+        "https://express.prosental.com/api";
+      const res = await fetch(`${apiUrl}/auth/orders`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ shipments }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || "حدث خطأ أثناء تأكيد الشحنة");
+      }
+
+      if (data.order && data.order.formatted_id) {
+        setOrderId(data.order.formatted_id);
+        setIsSubmitted(true);
+        localStorage.removeItem("pendingShipment"); // Erase draft upon successful order
+      } else {
+        // Handle cases where res.ok is true but data.order or formatted_id is missing
+        console.warn(
+          "Order submission successful but order ID not found in response:",
+          data,
+        );
+        setIsSubmitted(true); // Still consider it submitted, but without an ID
+        localStorage.removeItem("pendingShipment");
+      }
+    } catch (error) {
+      console.error("Order Submit Error:", error);
+      showPopup(error.message, "error");
+    }
   };
 
   if (status === "loading" || areasLoading) {
@@ -190,7 +435,8 @@ export default function ShipPage() {
               className="text-2xl font-mono font-bold text-black text-center"
               dir="ltr"
             >
-              SF-{((Math.random() * 10000000) | 0).toString().padStart(8, "0")}
+              {orderId ||
+                `SF-${((Math.random() * 10000000) | 0).toString().padStart(8, "0")}`}
             </p>
           </div>
           <button
@@ -301,9 +547,14 @@ export default function ShipPage() {
                       onChange={(e) =>
                         handleChange("sender", "name", e.target.value)
                       }
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-black font-medium"
+                      className={`w-full bg-gray-50 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:bg-white transition-all text-black font-medium ${errors.sender_name ? "border-red-500 focus:ring-red-500" : "border-gray-200 focus:ring-orange-500"}`}
                       placeholder="مثال: أحمد محمد"
                     />
+                    {errors.sender_name && (
+                      <p className="text-red-500 text-sm mt-1 font-medium">
+                        {errors.sender_name}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">
@@ -317,27 +568,43 @@ export default function ShipPage() {
                       onChange={(e) =>
                         handleChange("sender", "phone", e.target.value)
                       }
-                      className="w-full text-right bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-black font-medium"
+                      className={`w-full text-right bg-gray-50 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:bg-white transition-all text-black font-medium ${errors.sender_phone ? "border-red-500 focus:ring-red-500" : "border-gray-200 focus:ring-orange-500"}`}
                       placeholder="+20 100 000 0000"
                     />
+                    {errors.sender_phone && (
+                      <p className="text-red-500 text-sm mt-1 font-medium">
+                        {errors.sender_phone}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">
-                      المنطقة (داخل القاهرة الكبرى)
+                      المنطقة
                     </label>
                     <select
                       value={formData.sender.area}
                       onChange={(e) =>
                         handleChange("sender", "area", e.target.value)
                       }
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-black font-medium appearance-none"
+                      className={`w-full bg-gray-50 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:bg-white transition-all text-black font-medium appearance-none ${errors.sender_area ? "border-red-500 focus:ring-red-500" : "border-gray-200 focus:ring-orange-500"}`}
                     >
-                      {areas.map((area) => (
-                        <option key={area.id} value={area.id}>
-                          {area.name} ({Number(area.price)} ج.م)
-                        </option>
+                      {areas.map((zone, idx) => (
+                        <optgroup key={idx} label={zone.name}>
+                          {zone.areas
+                            ?.flatMap((a) => a.names || [])
+                            .map((area) => (
+                              <option key={area.uuid} value={area.uuid}>
+                                {area.name}
+                              </option>
+                            ))}
+                        </optgroup>
                       ))}
                     </select>
+                    {errors.sender_area && (
+                      <p className="text-red-500 text-sm mt-1 font-medium">
+                        {errors.sender_area}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">
@@ -350,9 +617,14 @@ export default function ShipPage() {
                       onChange={(e) =>
                         handleChange("sender", "address", e.target.value)
                       }
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-black resize-none font-medium"
+                      className={`w-full bg-gray-50 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:bg-white transition-all text-black resize-none font-medium ${errors.sender_address ? "border-red-500 focus:ring-red-500" : "border-gray-200 focus:ring-orange-500"}`}
                       placeholder="أدخل عنوان استلام الطرد بالتفصيل مع الرمز البريدي"
                     ></textarea>
+                    {errors.sender_address && (
+                      <p className="text-red-500 text-sm mt-1 font-medium">
+                        {errors.sender_address}
+                      </p>
+                    )}
                   </div>
                 </div>
               </motion.div>
@@ -385,9 +657,14 @@ export default function ShipPage() {
                       onChange={(e) =>
                         handleChange("receiver", "name", e.target.value)
                       }
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-black font-medium"
+                      className={`w-full bg-gray-50 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:bg-white transition-all text-black font-medium ${errors.receiver_name ? "border-red-500 focus:ring-red-500" : "border-gray-200 focus:ring-orange-500"}`}
                       placeholder="مثال: سارة محمود"
                     />
+                    {errors.receiver_name && (
+                      <p className="text-red-500 text-sm mt-1 font-medium">
+                        {errors.receiver_name}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">
@@ -401,27 +678,43 @@ export default function ShipPage() {
                       onChange={(e) =>
                         handleChange("receiver", "phone", e.target.value)
                       }
-                      className="w-full text-right bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-black font-medium"
+                      className={`w-full text-right bg-gray-50 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:bg-white transition-all text-black font-medium ${errors.receiver_phone ? "border-red-500 focus:ring-red-500" : "border-gray-200 focus:ring-orange-500"}`}
                       placeholder="+20 111 000 0000"
                     />
+                    {errors.receiver_phone && (
+                      <p className="text-red-500 text-sm mt-1 font-medium">
+                        {errors.receiver_phone}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">
-                      المنطقة (داخل القاهرة الكبرى)
+                      المنطقة
                     </label>
                     <select
                       value={formData.receiver.area}
                       onChange={(e) =>
                         handleChange("receiver", "area", e.target.value)
                       }
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-black font-medium appearance-none"
+                      className={`w-full bg-gray-50 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:bg-white transition-all text-black font-medium appearance-none ${errors.receiver_area ? "border-red-500 focus:ring-red-500" : "border-gray-200 focus:ring-orange-500"}`}
                     >
-                      {areas.map((area) => (
-                        <option key={area.id} value={area.id}>
-                          {area.name}
-                        </option>
+                      {areas.map((zone, idx) => (
+                        <optgroup key={idx} label={zone.name}>
+                          {zone.areas
+                            ?.flatMap((a) => a.names || [])
+                            .map((area) => (
+                              <option key={area.uuid} value={area.uuid}>
+                                {area.name}
+                              </option>
+                            ))}
+                        </optgroup>
                       ))}
                     </select>
+                    {errors.receiver_area && (
+                      <p className="text-red-500 text-sm mt-1 font-medium">
+                        {errors.receiver_area}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">
@@ -434,9 +727,14 @@ export default function ShipPage() {
                       onChange={(e) =>
                         handleChange("receiver", "address", e.target.value)
                       }
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all text-black resize-none font-medium"
+                      className={`w-full bg-gray-50 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:bg-white transition-all text-black resize-none font-medium ${errors.receiver_address ? "border-red-500 focus:ring-red-500" : "border-gray-200 focus:ring-orange-500"}`}
                       placeholder="أدخل عنوان تسليم الطرد بالتفصيل مع الرمز البريدي"
                     ></textarea>
+                    {errors.receiver_address && (
+                      <p className="text-red-500 text-sm mt-1 font-medium">
+                        {errors.receiver_address}
+                      </p>
+                    )}
                   </div>
                 </div>
               </motion.div>
@@ -452,12 +750,24 @@ export default function ShipPage() {
                 exit="exit"
               >
                 <h2 className="text-2xl font-bold text-black border-b border-gray-100 pb-4 mb-8 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+                  <div className="flex  items-center gap-3">
                     <div className="p-2 bg-orange-500 rounded-lg text-white">
                       <Package size={24} />
                     </div>
                     مواصفات الطرد
                   </div>
+                  <div className="md:block hidden">
+                    <button
+                      type="button"
+                      onClick={addParcel}
+                      className="flex items-center gap-2 text-sm bg-orange-100 text-orange-600 px-4 py-2 rounded-xl hover:bg-orange-200 transition-colors"
+                    >
+                      <Plus size={18} /> إضافة طرد آخر
+                    </button>
+                  </div>
+                </h2>
+
+                <div className="md:hidden block pb-10">
                   <button
                     type="button"
                     onClick={addParcel}
@@ -465,7 +775,7 @@ export default function ShipPage() {
                   >
                     <Plus size={18} /> إضافة طرد آخر
                   </button>
-                </h2>
+                </div>
 
                 <div className="space-y-8">
                   {formData.parcels.map((parcel, index) => (
@@ -491,7 +801,13 @@ export default function ShipPage() {
                           <label className="block text-sm font-bold text-gray-700 mb-2">
                             نوع الطرد
                           </label>
-                          <div className="flex gap-4">
+                          <div
+                            className="flex gap-4 overflow-x-auto pb-4 px-1 snap-x no-scrollbar"
+                            style={{
+                              scrollbarWidth: "none",
+                              msOverflowStyle: "none",
+                            }}
+                          >
                             {[
                               { id: "documents", name: "مستندات/أوراق" },
                               { id: "box", name: "صندوق" },
@@ -499,7 +815,7 @@ export default function ShipPage() {
                             ].map((type) => (
                               <label
                                 key={type.id}
-                                className={`flex-1 flex flex-col items-center justify-center p-4 rounded-xl border-2 cursor-pointer transition-all ${parcel.packageType === type.id ? "border-orange-500 bg-orange-50 text-orange-700" : "border-gray-200 bg-white hover:border-orange-200 text-gray-600"}`}
+                                className={`min-w-[140px] flex-1 flex flex-col items-center justify-center p-4 rounded-xl border-2 cursor-pointer transition-all snap-start whitespace-nowrap ${parcel.packageType === type.id ? "border-orange-500 bg-orange-50 text-orange-700" : "border-gray-200 bg-white hover:border-orange-200 text-gray-600"}`}
                               >
                                 <input
                                   type="radio"
@@ -524,7 +840,6 @@ export default function ShipPage() {
                             الوزن التقديري (كجم)
                           </label>
                           <input
-                            required
                             type="number"
                             min="0.1"
                             step="0.1"
@@ -545,7 +860,6 @@ export default function ShipPage() {
                             الأبعاد (طولxعرضxارتفاع سم)
                           </label>
                           <input
-                            required
                             type="text"
                             dir="ltr"
                             value={parcel.dimensions}
@@ -565,7 +879,6 @@ export default function ShipPage() {
                             وصف مختصر للطرد
                           </label>
                           <input
-                            required
                             type="text"
                             value={parcel.description}
                             onChange={(e) =>
@@ -581,76 +894,90 @@ export default function ShipPage() {
                         </div>
 
                         <div className="col-span-1 md:col-span-2 mt-2">
-                          <label className="flex items-center gap-2 cursor-pointer mb-4">
-                            <input
-                              type="checkbox"
-                              checked={parcel.hasCustomPickup}
-                              onChange={(e) => {
-                                handleParcelChange(
-                                  index,
-                                  "hasCustomPickup",
-                                  e.target.checked,
-                                );
-                                if (
-                                  e.target.checked &&
-                                  !parcel.customSenderArea &&
-                                  areas.length > 0
-                                ) {
+                          {index > 0 && (
+                            <label className="flex items-center gap-2 cursor-pointer mb-4 mt-6">
+                              <input
+                                type="checkbox"
+                                checked={parcel.hasCustomDelivery}
+                                onChange={(e) => {
                                   handleParcelChange(
                                     index,
-                                    "customSenderArea",
-                                    String(areas[0].id),
+                                    "hasCustomDelivery",
+                                    e.target.checked,
                                   );
-                                }
-                              }}
-                              className="w-4 h-4 text-orange-500 rounded border-gray-300 focus:ring-orange-500"
-                            />
-                            <span className="text-sm font-bold text-gray-700">
-                              استلام هذا الطرد من عنوان مختلف عن الراسل الأساسي
-                            </span>
-                          </label>
+                                  if (
+                                    e.target.checked &&
+                                    !parcel.customReceiverArea &&
+                                    areas.length > 0
+                                  ) {
+                                    handleParcelChange(
+                                      index,
+                                      "customReceiverArea",
+                                      getFirstAreaId(areas),
+                                    );
+                                  }
+                                }}
+                                className="w-5 h-5 text-orange-500 rounded border-gray-300 focus:ring-orange-500"
+                              />
+                              <span className="text-sm font-bold text-gray-700">
+                                تسليم هذا الطرد لعنوان مختلف{" "}
+                                <span className="text-gray-500 font-normal">
+                                  (يضاف تكلفة رحلة جديدة)
+                                </span>
+                              </span>
+                            </label>
+                          )}
 
-                          {parcel.hasCustomPickup && (
+                          {parcel.hasCustomDelivery && (
                             <div className="space-y-4 bg-white p-4 rounded-xl border border-gray-100 mt-2">
                               <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-2">
-                                  منطقة الاستلام للطرد
+                                  منطقة التسليم للطرد
                                 </label>
                                 <select
-                                  value={parcel.customSenderArea}
+                                  value={parcel.customReceiverArea}
                                   onChange={(e) =>
                                     handleParcelChange(
                                       index,
-                                      "customSenderArea",
+                                      "customReceiverArea",
                                       e.target.value,
                                     )
                                   }
                                   className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-black font-medium appearance-none"
                                 >
-                                  {areas.map((area) => (
-                                    <option key={area.id} value={area.id}>
-                                      {area.name} ({Number(area.price)} ج.م)
-                                    </option>
+                                  {areas.map((zone, idx) => (
+                                    <optgroup key={idx} label={zone.name}>
+                                      {zone.areas
+                                        ?.flatMap((a) => a.names || [])
+                                        .map((area) => (
+                                          <option
+                                            key={area.uuid}
+                                            value={area.uuid}
+                                          >
+                                            {area.name}
+                                          </option>
+                                        ))}
+                                    </optgroup>
                                   ))}
                                 </select>
                               </div>
                               <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-2">
-                                  عنوان الاستلام للطرد بالتفصيل
+                                  عنوان التسليم للطرد بالتفصيل
                                 </label>
                                 <textarea
-                                  required={parcel.hasCustomPickup}
+                                  required={parcel.hasCustomDelivery}
                                   rows="2"
-                                  value={parcel.customSenderAddress}
+                                  value={parcel.customReceiverAddress}
                                   onChange={(e) =>
                                     handleParcelChange(
                                       index,
-                                      "customSenderAddress",
+                                      "customReceiverAddress",
                                       e.target.value,
                                     )
                                   }
                                   className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-black resize-none font-medium"
-                                  placeholder="أدخل عنوان استلام هذا الطرد"
+                                  placeholder="أدخل عنوان تسليم هذا الطرد"
                                 ></textarea>
                               </div>
                             </div>
@@ -662,30 +989,51 @@ export default function ShipPage() {
                 </div>
 
                 <div className="mt-8 bg-orange-50 border border-orange-200 rounded-2xl p-6">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <h3 className="font-bold text-orange-900 text-lg">
-                        تكلفة الشحن التقديرية
-                      </h3>
-                      <p className="text-orange-700 text-sm mt-1">
-                        من{" "}
-                        {formData.parcels.some((p) => p.hasCustomPickup)
-                          ? "عناوين متعددة"
-                          : areas.find(
-                              (a) =>
-                                String(a.id) === String(formData.sender.area),
-                            )?.name}{" "}
-                        إلى{" "}
-                        {
-                          areas.find(
-                            (a) =>
-                              String(a.id) === String(formData.receiver.area),
-                          )?.name
-                        }
-                      </p>
-                    </div>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-orange-900 text-lg">
+                      تكلفة الشحن التقديرية
+                    </h3>
+                  </div>
+
+                  <div className="space-y-3 mb-6">
+                    {shippingBreakdown.map((item) => (
+                      <div
+                        key={item.id}
+                        className="md:flex justify-between items-center py-2 border-b border-orange-200/50 last:border-0"
+                      >
+                        <div className="flex flex-col">
+                          <span className="font-bold text-gray-800">
+                            طرد #{item.index}
+                          </span>
+                          <span className="text-sm text-gray-500">
+                            من {item.from} إلى {item.to}
+                          </span>
+                        </div>
+                        <div className="font-bold text-orange-700">
+                          {isCalculatingPrice ? (
+                            <span className="text-sm text-gray-400">...</span>
+                          ) : item.included ? (
+                            <span className="text-sm bg-orange-100 text-orange-600 px-2 py-1 rounded">
+                              مشمول
+                            </span>
+                          ) : (
+                            <>{item.price} ج.م</>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex justify-between items-center pt-4 border-t border-orange-200/80">
+                    <span className="font-bold text-gray-800 text-lg">
+                      الإجمالي الكلي:
+                    </span>
                     <div className="text-3xl font-extrabold text-orange-600 flex items-center gap-2">
-                      {calculateShippingPrice()}{" "}
+                      {isCalculatingPrice ? (
+                        <span className="text-lg">جاري الحساب...</span>
+                      ) : (
+                        <>{shippingPrice}</>
+                      )}{" "}
                       <span className="text-base font-bold">ج.م</span>
                     </div>
                   </div>
@@ -695,24 +1043,24 @@ export default function ShipPage() {
           </AnimatePresence>
 
           {/* Form Navigation Controls */}
-          <div className="mt-10 pt-6 border-t border-gray-100 flex justify-between">
+          <div className="mt-10 pt-6 border-t border-gray-100 flex flex-col-reverse md:flex-row justify-between gap-4">
             {step > 1 ? (
               <button
                 type="button"
                 onClick={handleBack}
-                className="px-6 py-3 border-2 border-gray-200 rounded-xl text-gray-600 font-bold hover:bg-gray-50 transition-colors"
+                className="w-full md:w-auto px-6 py-3 border-2 border-gray-200 rounded-xl text-gray-600 font-bold hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
               >
                 رجوع للخلف
               </button>
             ) : (
-              <div></div>
+              <div className="hidden md:block"></div>
             )}
 
             {step < 3 ? (
               <button
                 type="button"
                 onClick={handleNext}
-                className="px-8 py-3 bg-black hover:bg-gray-800 text-white rounded-xl font-bold flex items-center gap-2 transition-colors shadow-lg"
+                className="w-full md:w-auto px-8 py-3 bg-black hover:bg-gray-800 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-colors shadow-lg"
               >
                 متابعة الخطوات <ChevronLeft size={20} />
               </button>
@@ -721,11 +1069,11 @@ export default function ShipPage() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 type="submit"
-                className="px-10 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold flex items-center gap-2 transition-colors shadow-lg"
+                className="w-full md:w-auto px-10 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-colors shadow-lg"
               >
-                {session ? (
+                {isAuthenticated ? (
                   <>
-                    تأكيد الشحن <Send size={20} className="scale-x-[-1]" />
+                    <Send size={20} className="scale-x-[-1]" /> تأكيد الشحن
                   </>
                 ) : (
                   <>
@@ -737,6 +1085,29 @@ export default function ShipPage() {
           </div>
         </form>
       </div>
+
+      {/* Toast Notification Popup */}
+      <AnimatePresence>
+        {popup.show && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: -50 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: -20 }}
+            className={`fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center min-w-[300px] justify-center gap-3 px-6 py-4 rounded-2xl shadow-2xl backdrop-blur-md font-bold text-white border-2 border-white/20 ${
+              popup.type === "success" ? "bg-green-500" : "bg-red-500"
+            }`}
+          >
+            {popup.type === "success" ? (
+              <CheckCircle2 size={24} className="text-white drop-shadow-sm" />
+            ) : (
+              <XCircle size={24} className="text-white drop-shadow-sm" />
+            )}
+            <p className="text-sm md:text-base drop-shadow-sm">
+              {popup.message}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

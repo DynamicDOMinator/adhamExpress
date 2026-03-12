@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Truck,
@@ -13,6 +15,8 @@ import {
 import { motion } from "framer-motion";
 
 export default function Home() {
+  const router = useRouter();
+  const [trackId, setTrackId] = useState("");
   const containerVars = {
     hidden: { opacity: 0 },
     visible: {
@@ -44,7 +48,7 @@ export default function Home() {
               variants={itemVars}
               className="inline-block py-1.5 px-6 rounded-full bg-orange-100 text-orange-600 font-bold text-sm mb-6 shadow-sm"
             >
-              أسرع خدمات الشحن في مصر 
+              أسرع خدمات الشحن في مصر
             </motion.span>
 
             <motion.h1
@@ -90,17 +94,33 @@ export default function Home() {
               variants={itemVars}
               className="mt-16 bg-white p-4 rounded-2xl shadow-xl border border-gray-100 max-w-xl mx-auto"
             >
-              <div className="flex relative items-center">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (trackId.trim()) {
+                    router.push(
+                      `/track?id=${encodeURIComponent(trackId.trim())}`,
+                    );
+                  }
+                }}
+                className="flex relative items-center"
+              >
                 <input
                   type="text"
-                  placeholder="رقم التتبع (مثل SF-12345678)"
-                  className="w-full bg-gray-50 border-none rounded-xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-orange-500 text-gray-800 pr-14 font-bold"
+                  dir="rtl"
+                  value={trackId}
+                  onChange={(e) => setTrackId(e.target.value)}
+                  placeholder="رقم التتبع (مثل AE-12345678)"
+                  className="w-full bg-gray-50 border-none rounded-xl px-5 pl-[130px] py-4 focus:outline-none focus:ring-2 focus:ring-orange-500 text-gray-800 pr-14 font-bold text-right placeholder:text-gray-400 focus:placeholder:text-transparent transition-all uppercase"
                 />
                 <Package className="absolute right-5 text-gray-400" size={24} />
-                <button className="absolute left-2 bg-black text-white px-6 py-2 rounded-lg font-bold hover:bg-orange-500 transition-colors">
+                <button
+                  type="submit"
+                  className="absolute left-2 bg-black text-white px-6 py-2 rounded-lg font-bold hover:bg-orange-500 transition-colors"
+                >
                   تتبع الآن
                 </button>
-              </div>
+              </form>
             </motion.div>
           </motion.div>
         </div>
@@ -131,10 +151,11 @@ export default function Home() {
                 <Globe size={32} />
               </div>
               <h3 className="text-2xl font-bold text-black mb-4">
-             توصيل موثوق
+                توصيل موثوق
               </h3>
               <p className="text-gray-600 leading-relaxed font-medium">
-           نقدم خدمات توصيل موثوقة تغطي أغلب المناطق داخل مصر مع متابعة مستمرة للشحنة.
+                نقدم خدمات توصيل موثوقة تغطي أغلب المناطق داخل مصر مع متابعة
+                مستمرة للشحنة.
               </p>
             </motion.div>
 

@@ -21,8 +21,9 @@ export default function Footer() {
                   className="w-[150px] h-[150px]"
                   src="/logo.png"
                   alt="Logo"
-                  width={1000}
-                  height={1000}
+                  width={150}
+                  height={150}
+                  style={{ width: "150px", height: "auto" }}
                 />
               </div>
             </Link>
@@ -106,13 +107,17 @@ export default function Footer() {
             <p className="text-sm text-black mb-4">
               اشترك للحصول على آخر التحديثات والعروض الخاصة بأسعار الشحن.
             </p>
-            <form className="flex flex-col gap-3">
+            <form suppressHydrationWarning className="flex flex-col gap-3">
               <input
+                suppressHydrationWarning
                 type="email"
                 placeholder="أدخل بريدك الإلكتروني"
                 className="bg-gray-900 border border-gray-800 text-white rounded-lg px-4 py-2.5 outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all text-sm"
               />
-              <button className="bg-orange-500 hover:bg-orange-600 text-white rounded-lg px-4 py-2.5 font-medium transition-colors text-sm w-full">
+              <button
+                suppressHydrationWarning
+                className="bg-orange-500 hover:bg-orange-600 text-white rounded-lg px-4 py-2.5 font-medium transition-colors text-sm w-full"
+              >
                 اشترك الآن
               </button>
             </form>

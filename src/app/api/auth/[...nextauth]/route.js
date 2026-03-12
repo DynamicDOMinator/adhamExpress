@@ -15,19 +15,78 @@ const handler = NextAuth({
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        // Mock authorization: any non-empty credentials pass
-        if (credentials?.email && credentials?.password) {
-          return {
-            id: "1",
-            name: credentials.email.split("@")[0],
-            email: credentials.email,
-          };
+        try {
+          const apiUrl =
+            process.env.NEXT_PUBLIC_AREAS_API_URL ||
+            "https://express.prosental.com/api";
+          const res = await fetch(`${apiUrl}/auth/login`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              email: credentials?.email,
+              password: credentials?.password,
+            }),
+          });
+          const data = await res.json();
+
+          if (res.ok && data.access_token) {
+            return {
+              id: credentials?.email,
+              email: credentials?.email,
+              accessToken: data.access_token,
+            };
+          }
+          return null;
+        } catch (error) {
+          console.error("Login Error:", error);
+          return null;
         }
-        return null;
       },
     }),
   ],
   session: { strategy: "jwt" },
+  callbacks: {
+    async jwt({ token, user, account }) {
+      if (account && account.provider === "google") {
+        try {
+          const apiUrl =
+            process.env.NEXT_PUBLIC_AREAS_API_URL ||
+            "https://express.prosental.com/api";
+          const res = await fetch(`${apiUrl}/auth/google`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({ id_token: account.id_token }),
+          });
+          const data = await res.json();
+          if (res.ok && data.access_token) {
+            token.accessToken = data.access_token;
+            if (data.user) {
+              token.user = data.user;
+            }
+          }
+        } catch (error) {
+          console.error("Google Backend Auth Error:", error);
+        }
+      } else if (user) {
+        token.accessToken = user.accessToken;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      // Send properties to the client
+      session.accessToken = token.accessToken;
+      if (token.user) {
+        session.user = { ...session.user, ...token.user };
+      }
+      return session;
+    },
+  },
   secret:
     process.env.NEXTAUTH_SECRET || "default_super_secret_for_development_only",
 });

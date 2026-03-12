@@ -23,10 +23,12 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-20">
           <div className="flex items-center ">
-            <Link href="/" className="flex items-center  gap-2 group">
+            <Link href="/" className="flex lg:w-[70px] lg:h-[70px] w-[50px] h-[50px] items-center  gap-2 group">
               <Image
                 className=" mt-3"
                 src="/logo.png"
+
+              
                 alt="Logo"
                 width={70}
                 height={70}
@@ -219,8 +221,7 @@ export default function Navbar() {
               <div className="pt-4 border-t border-gray-100 flex flex-col gap-3">
                 {isAuthenticated ? (
                   <>
-                    <div  className="flex flex-row-reverse justify-end items-center gap-3 py-2">
-                    
+                    <div className="flex flex-row-reverse justify-end items-center gap-3 py-2">
                       <div className="text-right">
                         <p className="font-medium text-gray-900">
                           {currentUser?.name ||
@@ -231,7 +232,7 @@ export default function Navbar() {
                           {currentUser?.email || "حساب محلي"}
                         </p>
                       </div>
-                        {currentUser?.image ? (
+                      {currentUser?.image ? (
                         <img
                           src={currentUser.image}
                           alt="avatar"

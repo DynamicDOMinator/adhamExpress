@@ -48,12 +48,11 @@ export default function Footer() {
             <Link href="/" className="flex items-center gap-2 mb-6 group">
               <div className=" ">
                 <Image
-                  className="w-[150px] h-[150px]"
+                  className="lg:w-[150px] lg:h-[150px] w-[100px] h-[100px]"
                   src="/logo.png"
                   alt="Logo"
                   width={150}
                   height={150}
-                  style={{ width: "150px", height: "auto" }}
                 />
               </div>
             </Link>

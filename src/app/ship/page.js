@@ -91,7 +91,7 @@ export default function ShipPage() {
   useEffect(() => {
     const fetchAreas = async () => {
       try {
-        const apiUrl = `${process.env.NEXT_PUBLIC_AREAS_API_URL}/zones`;
+        const apiUrl = `${process.env.NEXT_PUBLIC_AREAS_API_URL || "https://express.prosental.com/api"}/zones`;
         const res = await fetch(apiUrl);
         if (!res.ok) throw new Error("Network error");
         const data = await res.json();

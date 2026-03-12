@@ -11,8 +11,11 @@ const cairo = Cairo({
 });
 
 export const metadata = {
-  title: "شيبنج فاست - حلول لوجستية",
-  description: "خدمات شحن سريعة وموثوقة لجميع أنحاء العالم.",
+  title: "Adham Express",
+  description: "خدمات شحن سريعة وموثوقة.",
+  icons: {
+    icon: "/logo.png",
+  },
 };
 
 export default function RootLayout({ children }) {

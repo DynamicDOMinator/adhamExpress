@@ -599,7 +599,7 @@ export default function ShipPage() {
                       onChange={(e) =>
                         handleChange("sender", "area", e.target.value)
                       }
-                      className={`w-full bg-gray-50 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:bg-white transition-all text-black font-medium appearance-none ${errors.sender_area ? "border-red-500 focus:ring-red-500" : "border-gray-200 focus:ring-orange-500"}`}
+                      className={`w-full bg-gray-50 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:bg-white transition-all text-black font-medium ${errors.sender_area ? "border-red-500 focus:ring-red-500" : "border-gray-200 focus:ring-orange-500"}`}
                     >
                       {areas.map((zone, idx) => (
                         <optgroup key={idx} label={zone.name}>
@@ -709,7 +709,7 @@ export default function ShipPage() {
                       onChange={(e) =>
                         handleChange("receiver", "area", e.target.value)
                       }
-                      className={`w-full bg-gray-50 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:bg-white transition-all text-black font-medium appearance-none ${errors.receiver_area ? "border-red-500 focus:ring-red-500" : "border-gray-200 focus:ring-orange-500"}`}
+                      className={`w-full bg-gray-50 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:bg-white transition-all text-black font-medium ${errors.receiver_area ? "border-red-500 focus:ring-red-500" : "border-gray-200 focus:ring-orange-500"}`}
                     >
                       {areas.map((zone, idx) => (
                         <optgroup key={idx} label={zone.name}>

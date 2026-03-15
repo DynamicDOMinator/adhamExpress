@@ -42,7 +42,7 @@ export default function ShipPage() {
         id: Date.now(),
         weight: "",
         dimensions: "",
-        packageType: "box",
+        packageType: "",
         description: "",
         hasCustomDelivery: false,
         customReceiverArea: "",
@@ -283,6 +283,12 @@ export default function ShipPage() {
         newErrors["receiver_area"] = "يرجى اختيار المنطقة";
       if (!formData.receiver.address)
         newErrors["receiver_address"] = "يرجى إدخال العنوان بالتفصيل";
+    } else if (step === 3) {
+      formData.parcels.forEach((parcel, idx) => {
+        if (!parcel.packageType) {
+          newErrors[`parcel_${idx}_type`] = "يرجى اختيار نوع الطرد";
+        }
+      });
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -323,7 +329,7 @@ export default function ShipPage() {
           id: Date.now(),
           weight: "",
           dimensions: "",
-          packageType: "box",
+          packageType: "",
           description: "",
           hasCustomDelivery: false,
           customReceiverArea: firstAreaId,
@@ -824,7 +830,7 @@ export default function ShipPage() {
                             {[
                               { id: "documents", name: "مستندات/أوراق" },
                               { id: "box", name: "صندوق" },
-                              { id: "pallet", name: "طلبيه/حجم كبير" },
+                              { id: "large", name: "طلبيه/حجم كبير" },
                             ].map((type) => (
                               <label
                                 key={type.id}
@@ -847,6 +853,11 @@ export default function ShipPage() {
                               </label>
                             ))}
                           </div>
+                          {errors[`parcel_${index}_type`] && (
+                            <p className="text-red-500 text-sm mt-1 font-medium">
+                              {errors[`parcel_${index}_type`]}
+                            </p>
+                          )}
                         </div>
                         <div>
                           <label className="block text-sm font-bold text-gray-700 mb-2">
